@@ -4,22 +4,23 @@ import com.fbrl.application.port.in.GetLedgerEntriesUseCase;
 import com.fbrl.application.port.out.LoadLedgerEntriesPort;
 import com.fbrl.application.port.out.PagedResult;
 import com.fbrl.domain.model.LedgerEntry;
-import org.springframework.context.annotation.Primary;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
-@Primary
 @Service
-public class GetLedgerEntriesService implements GetLedgerEntriesUseCase {
+@Qualifier("demo")
+public class DemoGetLedgerEntriesService implements GetLedgerEntriesUseCase {
 
-  private final LoadLedgerEntriesPort loadLedgerEntriesPort;
+  private final LoadLedgerEntriesPort demoLoadLedgerEntriesPort;
 
-  public GetLedgerEntriesService(LoadLedgerEntriesPort loadLedgerEntriesPort) {
-    this.loadLedgerEntriesPort = loadLedgerEntriesPort;
+  public DemoGetLedgerEntriesService(
+      @Qualifier("demo") LoadLedgerEntriesPort demoLoadLedgerEntriesPort) {
+    this.demoLoadLedgerEntriesPort = demoLoadLedgerEntriesPort;
   }
 
   @Override
   public PagedResult<LedgerEntry> getLedgerEntries(GetLedgerEntriesQuery query) {
-    return loadLedgerEntriesPort.loadByAccountNumberAndPeriod(
+    return demoLoadLedgerEntriesPort.loadByAccountNumberAndPeriod(
         query.accountNumber(), query.from(), query.to(), query.page(), query.size());
   }
 }
