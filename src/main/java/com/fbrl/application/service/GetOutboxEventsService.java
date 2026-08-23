@@ -4,8 +4,10 @@ import com.fbrl.application.port.in.GetOutboxEventsUseCase;
 import com.fbrl.application.port.out.LoadOutboxEventsPort;
 import com.fbrl.application.port.out.PagedResult;
 import com.fbrl.domain.model.OutboxEvent;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
+@Primary
 @Service
 public class GetOutboxEventsService implements GetOutboxEventsUseCase {
 

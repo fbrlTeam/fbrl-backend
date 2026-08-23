@@ -8,26 +8,27 @@ import org.springframework.batch.core.job.JobExecution;
 import org.springframework.batch.core.job.JobInstance;
 import org.springframework.batch.core.launch.NoSuchJobException;
 import org.springframework.batch.core.repository.JobRepository;
-import org.springframework.context.annotation.Primary;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
-@Primary
 @Component
-public class BatchJobExecutionHistoryAdapter implements LoadBatchJobExecutionHistoryPort {
+@Qualifier("demo")
+public class DemoBatchJobExecutionHistoryAdapter implements LoadBatchJobExecutionHistoryPort {
 
-  private final JobRepository jobRepository;
+  private final JobRepository demoJobRepository;
 
-  public BatchJobExecutionHistoryAdapter(JobRepository jobRepository) {
-    this.jobRepository = jobRepository;
+  public DemoBatchJobExecutionHistoryAdapter(
+      @Qualifier("demoJobRepository") JobRepository demoJobRepository) {
+    this.demoJobRepository = demoJobRepository;
   }
 
   @Override
   public PagedResult<BatchJobExecutionSummary> recentExecutions(
       String jobName, int page, int size) {
-    List<JobInstance> instances = jobRepository.getJobInstances(jobName, page * size, size);
+    List<JobInstance> instances = demoJobRepository.getJobInstances(jobName, page * size, size);
     List<BatchJobExecutionSummary> summaries =
         instances.stream()
-            .flatMap(instance -> jobRepository.getJobExecutions(instance).stream())
+            .flatMap(instance -> demoJobRepository.getJobExecutions(instance).stream())
             .map(this::toSummary)
             .toList();
     return new PagedResult<>(summaries, countInstances(jobName));
@@ -35,7 +36,7 @@ public class BatchJobExecutionHistoryAdapter implements LoadBatchJobExecutionHis
 
   private long countInstances(String jobName) {
     try {
-      return jobRepository.getJobInstanceCount(jobName);
+      return demoJobRepository.getJobInstanceCount(jobName);
     } catch (NoSuchJobException e) {
       return 0;
     }
