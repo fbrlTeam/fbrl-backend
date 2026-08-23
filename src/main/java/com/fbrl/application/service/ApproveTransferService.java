@@ -15,6 +15,8 @@ import org.springframework.stereotype.Service;
 public class ApproveTransferService implements ApproveTransferUseCase {
 
   private static final Logger log = LoggerFactory.getLogger(ApproveTransferService.class);
+  private static final String DOMAIN_EXCEPTION_PACKAGE = "com.fbrl.domain.exception";
+  private static final String GENERIC_EXECUTION_FAILURE_REASON = "내부 오류로 이체가 실행되지 않았습니다.";
 
   private final LoadApprovalRequestPort loadApprovalRequestPort;
   private final SaveApprovalRequestPort saveApprovalRequestPort;
@@ -47,7 +49,7 @@ public class ApproveTransferService implements ApproveTransferUseCase {
           new TransferMoneyCommand(
               saved.getFromAccountNumber(), saved.getToAccountNumber(), saved.getAmount()));
     } catch (RuntimeException e) {
-      saved.markExecutionFailed(e.getMessage());
+      saved.markExecutionFailed(safeExecutionFailureReason(e));
       trySaveExecutionResult(saved);
       throw e;
     }
@@ -56,6 +58,13 @@ public class ApproveTransferService implements ApproveTransferUseCase {
     saved = trySaveExecutionResult(saved);
 
     return new ApprovalDecisionResult(saved.getRequestId(), saved.getStatus());
+  }
+
+  private String safeExecutionFailureReason(RuntimeException e) {
+    if (DOMAIN_EXCEPTION_PACKAGE.equals(e.getClass().getPackageName())) {
+      return e.getMessage();
+    }
+    return GENERIC_EXECUTION_FAILURE_REASON;
   }
 
   private TransferApprovalRequest trySaveExecutionResult(TransferApprovalRequest request) {

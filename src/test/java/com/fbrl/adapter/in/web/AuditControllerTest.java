@@ -18,6 +18,7 @@ import com.fbrl.domain.model.AdminUser;
 import com.fbrl.domain.model.LedgerDirection;
 import com.fbrl.domain.model.LedgerEntry;
 import com.fbrl.domain.model.Money;
+import com.fbrl.domain.model.OutboxEvent;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -101,7 +102,7 @@ class AuditControllerTest {
   }
 
   @Test
-  @DisplayName("이벤트 목록을 조회하면 200 OK와 함께 최소 필드로 구성된 페이지를 반환한다.")
+  @DisplayName("이벤트 목록을 조회하면 200 OK와 함께 해시체인 검증용 필드를 포함한 페이지를 반환한다.")
   void getEvents_returnsPage() throws Exception {
     mockMvc
         .perform(get("/api/v1/audit/events").header(HttpHeaders.AUTHORIZATION, bearer()))
@@ -110,7 +111,8 @@ class AuditControllerTest {
         .andExpect(jsonPath("$.content[0].aggregateId").value(SENDER))
         .andExpect(jsonPath("$.content[0].aggregateType").exists())
         .andExpect(jsonPath("$.content[0].eventType").exists())
-        .andExpect(jsonPath("$.content[0].entryHash").doesNotExist());
+        .andExpect(jsonPath("$.content[0].previousHash").value(OutboxEvent.GENESIS_PREVIOUS_HASH))
+        .andExpect(jsonPath("$.content[0].entryHash").exists());
   }
 
   @Test
