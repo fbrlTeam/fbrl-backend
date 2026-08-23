@@ -69,6 +69,8 @@ com.fbrl
 
 **선택 이유**: 감사 추적성(어떤 이체가 어느 단계에서 실패했는지 한 곳에서 조회 가능) 때문에 Orchestration 채택. `TransferSaga`(`src/main/java/com/fbrl/domain/model/TransferSaga.java`)를 영속화된 상태 머신으로 설계하고, `TransferSagaOrchestrator`(`application.service`)가 `WithdrawalParticipantPort`/`DepositParticipantPort`(`adapter.out.participant`)를 순서대로 호출. 참여자 어댑터는 예외를 오케스트레이터로 전파하지 않고 항상 `Result(success, failureReason)`로 수렴시켜, 실패 처리 경로가 두 갈래로 갈라지는 것을 방지.
 
+**참고 — 실제 라이브 경로 아님**: 과제 19(Maker-Checker 도입) 착수 전 리서치에서 `StartTransferSagaUseCase`/`TransferSagaOrchestrator`가 어떤 컨트롤러에도 연결되어 있지 않고 테스트에서만 호출되는 상태임을 확인했다(과제 25에서 재확인, `transfer_sagas` 테이블은 프로덕션에서 0행). 실제 이체는 `TransferMoneyController` → `TransferMoneyService`(복식부기 원장 `LedgerEntry` 기반 원자적 트랜잭션)가 처리한다. 위 설계 결정 자체는 유효하지만, 이 문서를 라이브 이체 흐름 설명으로 읽지 않도록 명시해 둔다.
+
 ### 2. Enum 영속화 방식: `@Enumerated(STRING)` vs `ORDINAL`
 
 **문제 상황**: `SagaStatus`를 JPA 엔티티(`TransferSagaJpaEntity`)에 저장해야 함.

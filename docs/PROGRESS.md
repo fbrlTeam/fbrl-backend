@@ -900,6 +900,28 @@ Azure Cache for Redis는 비밀번호 인증과 TLS가 기본 강제되는데 `R
 
 신규 `DemoDataResetTrialBalanceIntegrationTest` — 리셋 후 원장 DEBIT/CREDIT 합계를 `ledger_entries` 테이블에 직접 SQL로 대조(`demoTrialBalanceVerificationStep`과 동일한 로직 재현), 리셋→데모 EOD Job 온디맨드 트리거→`BatchStatus.COMPLETED` 종단 테스트 추가. 기존 `DemoDataResetIntegrationTest`(계좌 개수/outbox 개수 등 raw 쿼리 검증) 6건도 회귀 없이 통과. 전체 241건 통과.
 
+### 과제 41: DEMO 역할용 감사로그/배치 이력 조회 API (완료)
+
+브랜치: `feat/demo-audit-and-batch-job-history-endpoints` → `develop` (PR #92)
+
+프론트엔드 팀 요청 — `SecurityConfig`상 DEMO 역할은 `/api/v1/audit/**`, `/api/v1/batch-jobs/**`에 접근 불가(`hasRole("ADMIN")`만)라 DEMO 계정으로는 자기가 트리거한 배치 상태도, 데모의 핵심 셀링포인트인 해시체인 변조 탐지 결과도 볼 수 없었음. `/api/v1/demo/audit/events`, `/api/v1/demo/audit/verify`, `/api/v1/demo/batch-jobs/{jobName}/executions`를 신설(기존 운영 엔드포인트/권한 무변경, `/api/v1/demo/**`엔 기존 `hasAnyRole("DEMO","ADMIN")` 규칙이 자동 적용).
+
+`VerifyAuditChainService`는 unqualified `@Transactional(readOnly=true)`가 붙어 있어 그대로 재사용하면 프로덕션 트랜잭션 매니저가 딸려 들어오는 문제(과제 32 `DemoVerifyTrialBalanceService`와 동일 사유)를 확인 후 `DemoVerifyAuditChainService`를 신설(검증 로직은 그대로 복제, `demoTransactionManager` 명시 바인딩). `GetOutboxEventsService`/`GetBatchJobExecutionHistoryService`는 트랜잭션 결합이 없어 포트만 데모로 교체하는 순수 재사용으로 처리(둘 다 `@Primary` 신규 추가). `LoadBatchJobExecutionHistoryPort`의 데모 구현이 없어 `DemoBatchJobExecutionHistoryAdapter` 신규 작성.
+
+실제 curl로 실증: 데모 리셋 직후 `GET /api/v1/demo/audit/verify`가 `valid:false`와 정확한 `brokenAtId`(3건 중 마지막)를 반환해, "리셋이 마지막 1건을 변조한다"는 과제 38 설계를 API 레벨에서 확인. `DemoAuditControllerTest`(7건)/`DemoBatchJobExecutionControllerTest`(4건) 신규, 전체 252건 통과(기존 241 + 신규 11).
+
+### 과제 42: DEMO 역할용 계좌상세/원장/승인목록/EOD스냅샷/Reconciliation불일치 조회 API 5종 (완료)
+
+브랜치: `feat/demo-remaining-get-endpoints` → `develop` (PR #93)
+
+`/api/v1/demo/**`에 남아 있던 마지막 읽기 전용 조회 API 5개(계좌 상세, 원장 이력, 승인 목록/대기, EOD 스냅샷 2종, Reconciliation 불일치)를 추가. 새 패턴 없이 기존 `PagedResult<T>`/`PageResponse<T>` + `@Qualifier("demo")` 포트 주입 컨벤션 그대로 따름.
+
+7개 프로덕션 서비스 전부 실제 소스로 `@Transactional` 매니저 지정 여부를 확인 후 판단: `GetAccountService`만 unqualified `@Transactional` + 프로덕션 전용 `AccountBalanceCalculator`(인터페이스 공유 없는 구체 클래스)에 결합되어 있어 `DemoGetAccountService` 신설(과제 32에서 이미 만들어져 있던 `DemoAccountBalanceCalculator`를 그대로 재사용). 나머지 6개(`GetLedgerEntriesService`/`SearchTransferApprovalsService`/`GetPendingApprovalsService`/`GetEodSnapshotHistoryService`/`GetEodSnapshotsByDateService`/`SearchReconciliationDiscrepanciesService`)는 트랜잭션 결합이 없어 포트만 데모로 교체하는 순수 재사용. 7개 전부 `@Primary` 신규 추가(동일 인터페이스에 데모 구현이 하나 더 생기며 발생하는 빈 모호성 해소, 과제 30 `VerifyTrialBalanceService` 선례와 동일 패턴).
+
+Port 레벨도 서비스와 별개로 확인: `DemoLedgerEntryPersistenceAdapter.loadByAccountNumberAndPeriod()`(과제 32), `DemoApprovalRequestPersistenceAdapter.search()`/`loadByStatus()`(과제 36)는 이미 구현돼 있어 그대로 사용. 반면 `LoadEodSnapshotHistoryPort`/`LoadReconciliationDiscrepancyPort`는 데모 어댑터에 구현 자체가 없어(배치 작업 때 저장/최신조회 메서드만 만들었던 상태) `DemoEodSnapshotPersistenceAdapter`/`DemoReconciliationDiscrepancyPersistenceAdapter`에 신규 구현, 각각 데모 JPA 리포지토리에 프로덕션과 동일한 JPQL `search()`/`findBySettlementDate()` 쿼리 메서드를 추가.
+
+로컬 `java -jar` 실기동으로 6개(계좌 상세 포함) 전부 raw curl로 실증 — 특히 신규 Port인 EOD 스냅샷/Reconciliation 불일치는 온디맨드 배치 트리거(EOD 미실행 상태에서 Reconciliation만 먼저 트리거해 과제 33의 `NO_SNAPSHOT` 재현을 새 데모 어댑터로도 재확인)까지 실행해 실물 데이터로 확인. 신규 테스트 27건(`DemoAccountControllerTest` 9, `DemoEodSnapshotControllerTest` 6, `DemoReconciliationDiscrepancyControllerTest` 5, 기존 `DemoTransferApprovalControllerTest`에 7건 추가), 전체 279건 통과(기존 252 + 신규 27).
+
 ## 🚧 다음 작업
 
 - (보류) 승인은 됐으나 집행(실제 이체) 실패한 건의 재시도 정책 — 과제 23에서 `TransferApprovalRequest.executionStatus`(NOT_APPLICABLE/EXECUTED/FAILED)로 "승인 행위"와 "집행 결과"를 분리했지만, `executionStatus=FAILED`로 남은 건을 재시도시킬 API/운영 절차는 이번 스코프에서 의도적으로 제외(YAGNI). 재시도 API 필요 시: 같은 요청을 다시 집행할지, 아니면 신규 승인 요청을 처음부터 다시 만들게 할지부터 결정 필요.
@@ -976,4 +998,4 @@ Azure Cache for Redis는 비밀번호 인증과 TLS가 기본 강제되는데 `R
 
 ---
 
-마지막 업데이트: 2026-08-23
+마지막 업데이트: 2026-08-24

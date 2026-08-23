@@ -110,7 +110,7 @@ Spring Boot의 환경변수 relaxed binding은 `.`과 `-` 둘 다 단어 경계�
 
 - **401 Unauthorized** — 요청에 유효한 인증 정보가 아예 없는 경우. `Authorization` 헤더 자체가 없거나, 토큰이 만료/위조/형식 오류로 `TokenPort.validateToken()`이 실패한 경우 전부 여기에 해당. 응답 바디는 `{"code":"UNAUTHORIZED", "message":"...", "timestamp":"..."}`.
 - **403 Forbidden** — 인증은 됐지만(유효한 토큰을 갖고 있지만) 해당 작업을 수행할 권한이 없는 경우. 응답 바디는 `{"code":"FORBIDDEN", "message":"...", "timestamp":"..."}`.
-- 현재 스코프(단일 `ADMIN` 역할)에서는 403이 실제로 발생할 경로가 없습니다 — 역할이 하나뿐이라 "인증은 됐는데 권한이 부족한" 상황 자체가 없기 때문입니다. 그래도 401/403을 처음부터 분리해둔 이유: 나중에 역할이 늘어나면(예: 조회 전용 역할 추가) 403 경로가 바로 의미를 갖게 되고, 프론트엔드도 그때 가서 에러 처리 로직을 새로 만들 필요 없이 지금부터 "401=로그인 필요, 403=권한 부족"으로 분기해두면 됩니다.
+- 과제 37(DEMO 역할 도입)부터 403이 실제로 발생하는 경로가 있습니다 — `DEMO` 역할 토큰으로 `/api/v1/demo/**` 밖의 운영 엔드포인트(예: `POST /api/v1/accounts`, `GET /api/v1/batch-jobs/{jobName}/executions`)를 호출하면 403이 반환됩니다(`SecurityConfig`: `/api/v1/demo/**`는 `hasAnyRole("DEMO","ADMIN")`, 그 외는 `hasRole("ADMIN")`). `ADMIN` 역할은 운영/데모 엔드포인트 양쪽 다 여전히 접근 가능합니다.
 
 ## 인프라 팀과 협의 필요한 별도 항목
 
@@ -119,4 +119,5 @@ Spring Boot의 환경변수 relaxed binding은 `.`과 `-` 둘 다 단어 경계�
 - **Kafka 인증 경로 부재** — `KafkaProducerConfig`에 SASL 설정 필드 자체가 없음. Event Hubs(또는 Azure 상의 Kafka 호환 서비스) 등 실제 대상이 정해지면 인증 설정 코드를 추가해야 함. (Redis는 Azure Cache for Redis로 확정되어 `SPRING_DATA_REDIS_PASSWORD`/`SPRING_DATA_REDIS_SSL_ENABLED` 추가로 해소됨 — 위 표 참고)
 - **Kafka 재시도/DLT 토픽 replication factor=1** — 단일 장애점. 실제 브로커 구성(파티션/복제본 수)이 정해지면 그에 맞게 조정 필요.
 - **Kafka 토픽 자체 분리(main/demo)** — `debezium/outbox-connector.json` 하나뿐이고 `route.topic.replacement`가 `transfer-events` 고정값. 메인/데모가 각자 DB를 갖는 이상, 토픽까지 분리하려면 이 커넥터를 복제해 `database.dbname`/`slot.name`/`route.topic.replacement`를 각각 다르게 지정한 두 번째 커넥터를 Kafka Connect에 새로 등록해야 함(위 `KAFKA_TOPIC_TRANSFER_EVENTS` 행 참고 — 앱 쪽은 이미 외부화되어 이 작업만 남음). Redisson 계좌 락 키 관련해서도 데모 계좌번호에 `DEMO-` 같은 접두를 강제하는 채번 로직이 아직 없어, 같은 Redis를 공유하는 동안은 계좌 락 키가 우연히 겹치지 않는 수준에 머물러 있음 — 이 역시 별도 채번 작업으로 해소 예정.
-- **데모 전용 인가 격리 미비** — `POST /api/v1/demo/accounts`, `POST /api/v1/demo/batch-jobs/eod/trigger` 등 데모 전용 엔드포인트가 기존 `SecurityConfig`의 `anyRequest().authenticated()`만 그대로 적용받음. 단일 `ADMIN` 역할 체계라 "관리자면 데모/운영 구분 없이 전부 호출 가능"한 상태 — 데모 전용 역할·권한 분리는 아직 없음. 공개 배포용으로 안전한 상태가 아니므로, 데모 환경을 외부에 노출하기 전 역할 기반 인가(RBAC) 도입이 선행되어야 함.
+
+(해소됨 — 과제 37에서 `DEMO`/`ADMIN` 역할 기반 인가(`SecurityConfig`)가 도입되어, 데모 전용 엔드포인트는 `/api/v1/demo/**` 아래로 모이고 `DEMO` 역할로는 그 밖의 운영 엔드포인트를 호출할 수 없습니다. 위 "인증 실패 시 HTTP 상태 코드" 절 참고.)
