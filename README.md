@@ -84,7 +84,7 @@ graph TB
 - API 멱등성 (Redis SETNX 기반 `@CheckIdempotency`)
 - Transactional Outbox 패턴 + Debezium CDC 기반 발행 (PostgreSQL 논리적 복제, 폴링 없이 WAL 기반으로 실시간에 가깝게 Kafka 발행)
 - 해시체인 기반 불변 감사로그 (`OutboxEvent`가 직전 항목의 SHA-256 해시를 포함, `outbox_chain_tail` 단일 행 `SELECT ... FOR UPDATE`로 동시 삽입 시 체인 분기 방지, `GET /api/v1/audit/verify`로 전체 체인 무결성 검증)
-- Saga 오케스트레이션 (`TransferSaga` 상태 머신 + 보상 트랜잭션, Choreography 대신 Orchestration 채택)
+- Saga 오케스트레이션 (`TransferSaga` 상태 머신 + 보상 트랜잭션, Choreography 대신 Orchestration 채택) — **구현·테스트 검증은 완료됐으나 어떤 컨트롤러에도 연결되어 있지 않아 실제 라이브 이체 경로가 아님**. 실제 이체(`POST /api/v1/transfers` 및 Maker-Checker 승인 후 집행)는 아래 복식부기 원장 기반 `TransferMoneyService`가 처리하며, `TransferSagaOrchestrator`/`StartTransferSagaUseCase`는 통합 테스트에서만 실행됩니다.
 - 복식부기 원장(`LedgerEntry`, append-only) — 계좌 잔액을 저장 필드가 아닌 원장 합산 파생값(SSOT)으로 전환, 거래 단위 대차평형은 `LedgerEntry.transferPair`로 구조적 보장
 - 분산 트레이싱 (Micrometer Tracing + OpenTelemetry bridge) — HTTP 요청 → Saga 각 단계 → Outbox 저장 → Debezium CDC → Kafka Consumer(재시도 토픽 포함)까지 하나의 trace_id로 연결. Outbox 전용 컬럼(`trace_id`/`span_id`)에 담아 Debezium EventRouter SMT로 Kafka 헤더에 실어 전파(감사로그 해시체인 계산 대상에서는 제외)
 - Maker-Checker(이중 승인, 4-eyes principle) — 금액 threshold 이상 이체는 `TransferMoneyController`에서 즉시 차단되고, `TransferApprovalController`(`/api/v1/transfer-approvals`)를 통한 별도 기안(Maker)/승인(Checker) 절차를 거쳐야만 실제 자금 이동이 시작됨. 승인 워크플로 상태(`status`)와 실제 자금 이동 결과(`executionStatus`)는 별도 필드로 분리되어 있어, 승인 후 집행이 실패해도(이상거래 탐지 등) "승인 행위가 있었다"는 사실과 "그 집행은 실패했다"는 사실을 각각 명시적으로 확인할 수 있음
@@ -124,6 +124,23 @@ graph TB
 - 계좌 개설(`POST /api/v1/demo/accounts`), 이체(`POST /api/v1/demo/transfers`), 승인 워크플로(`POST/GET /api/v1/demo/transfer-approvals/**`), EOD/Reconciliation 온디맨드 트리거(`POST /api/v1/demo/batch-jobs/{eod|reconciliation}/trigger`)는 운영 로직을 그대로 복제해 간소화하지 않았습니다.
 - 데이터는 주기적으로 초기화됩니다(`demo.reset.cron`, 기본 30분). 리셋 직후 `DEMO-AUDIT-DEMO`/`DEMO-AUDIT-COUNTERPARTY` 계좌가 시딩되고, Outbox 감사로그 3건 중 마지막 1건이 의도적으로 변조된 상태로 심어집니다 — 해시체인 위변조 탐지 기능을 바로 시연할 수 있도록 하기 위함입니다. `GET /api/v1/demo/reset-status`로 마지막/다음 리셋 시각을 확인할 수 있고, 리셋 진행 중에는 온디맨드 배치 트리거가 423을 반환합니다.
 - 데모 로그인 계정(`DEMO_ACCOUNT_USERNAME`/`PASSWORD`)은 데모 프론트엔드에 공개적으로 노출되는 것이 의도된 설계입니다 — `DEMO` 역할은 `/api/v1/demo/**` 밖에는 접근할 수 없어 노출돼도 보안 경계가 뚫리지 않습니다.
+
+### 데모 조회 API
+
+위 [관리자 조회 API](#관리자-조회-api)와 동일한 페이지네이션 형태를 쓰는 데모 전용 조회 엔드포인트 10종입니다. `DEMO`/`ADMIN` 두 역할 모두 접근 가능하며, 데모 DB만 조회하므로 운영 데이터와 섞이지 않습니다.
+
+| # | 엔드포인트 | 설명 |
+|---|---|---|
+| 1 | `GET /api/v1/demo/audit/events` | 데모 Outbox 감사로그 이벤트 목록 |
+| 2 | `GET /api/v1/demo/audit/verify` | 데모 해시체인 무결성 검증(리셋이 심어둔 변조를 탐지) |
+| 3 | `GET /api/v1/demo/batch-jobs/{jobName}/executions` | 데모 배치 Job(`demoEodSettlementJob`/`demoReconciliationJob`) 실행 이력 |
+| 4 | `GET /api/v1/demo/accounts/{accountNumber}` | 데모 계좌 상세(잔액 포함) |
+| 5 | `GET /api/v1/demo/accounts/{accountNumber}/ledger-entries` | 데모 계좌별 원장 조회 |
+| 6 | `GET /api/v1/demo/transfer-approvals` | 데모 승인 요청 이력(전체 상태) |
+| 7 | `GET /api/v1/demo/transfer-approvals/pending` | 데모 승인 대기 목록 |
+| 8 | `GET /api/v1/demo/eod-snapshots/{accountNumber}` | 데모 계좌별 EOD 스냅샷 히스토리 |
+| 9 | `GET /api/v1/demo/eod-snapshots` | 날짜별 전체 데모 계좌 EOD 스냅샷 |
+| 10 | `GET /api/v1/demo/reconciliation-discrepancies` | 데모 Reconciliation 불일치 목록 |
 
 ## 로컬 실행 방법
 
