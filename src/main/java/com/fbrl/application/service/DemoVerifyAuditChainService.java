@@ -4,22 +4,25 @@ import com.fbrl.application.port.in.VerifyAuditChainUseCase;
 import com.fbrl.application.port.out.LoadAllOutboxEventsPort;
 import com.fbrl.domain.model.OutboxEvent;
 import java.util.List;
-import lombok.RequiredArgsConstructor;
-import org.springframework.context.annotation.Primary;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-@Primary
 @Service
-@RequiredArgsConstructor
-public class VerifyAuditChainService implements VerifyAuditChainUseCase {
+@Qualifier("demo")
+public class DemoVerifyAuditChainService implements VerifyAuditChainUseCase {
 
-  private final LoadAllOutboxEventsPort loadAllOutboxEventsPort;
+  private final LoadAllOutboxEventsPort demoLoadAllOutboxEventsPort;
+
+  public DemoVerifyAuditChainService(
+      @Qualifier("demo") LoadAllOutboxEventsPort demoLoadAllOutboxEventsPort) {
+    this.demoLoadAllOutboxEventsPort = demoLoadAllOutboxEventsPort;
+  }
 
   @Override
-  @Transactional(readOnly = true)
+  @Transactional(value = "demoTransactionManager", readOnly = true)
   public AuditChainVerificationResult verify() {
-    List<OutboxEvent> events = loadAllOutboxEventsPort.loadAllOrderedById();
+    List<OutboxEvent> events = demoLoadAllOutboxEventsPort.loadAllOrderedById();
 
     String expectedPreviousHash = OutboxEvent.GENESIS_PREVIOUS_HASH;
     for (OutboxEvent event : events) {
