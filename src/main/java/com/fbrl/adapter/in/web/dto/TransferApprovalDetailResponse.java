@@ -16,6 +16,7 @@ public record TransferApprovalDetailResponse(
     ApprovalStatus status,
     String rejectionReason,
     ExecutionStatus executionStatus,
+    String executionFailureReason,
     Instant requestedAt,
     Instant decidedAt) {
   public static TransferApprovalDetailResponse from(TransferApprovalRequest request) {
@@ -29,6 +30,7 @@ public record TransferApprovalDetailResponse(
         request.getStatus(),
         request.getRejectionReason(),
         request.getExecutionStatus(),
+        request.getExecutionFailureReason(),
         request.getRequestedAt(),
         request.getDecidedAt());
   }

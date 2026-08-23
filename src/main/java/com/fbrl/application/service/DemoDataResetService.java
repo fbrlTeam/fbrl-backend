@@ -10,11 +10,11 @@ import com.fbrl.application.port.out.SaveLedgerEntryPort;
 import com.fbrl.application.port.out.SaveOutboxEventPort;
 import com.fbrl.domain.event.TransferCompletedEvent;
 import com.fbrl.domain.model.Account;
-import com.fbrl.domain.model.LedgerDirection;
 import com.fbrl.domain.model.LedgerEntry;
 import com.fbrl.domain.model.LedgerEntry.LedgerEntryPair;
 import com.fbrl.domain.model.Money;
 import com.fbrl.domain.model.OutboxEvent;
+import com.fbrl.domain.model.SystemAccounts;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -72,14 +72,14 @@ public class DemoDataResetService {
     demoAccountRepositoryPort.save(Account.create(SEED_SENDER_ACCOUNT_NUMBER));
     demoAccountRepositoryPort.save(Account.create(SEED_RECEIVER_ACCOUNT_NUMBER));
 
-    demoSaveLedgerEntryPort.saveAll(
-        List.of(
-            LedgerEntry.of(
-                SEED_SENDER_ACCOUNT_NUMBER,
-                LedgerDirection.CREDIT,
-                SEED_BALANCE,
-                "DEMO_RESET_SEED",
-                now)));
+    LedgerEntryPair openingBalancePair =
+        LedgerEntry.transferPair(
+            SystemAccounts.OPENING_BALANCE_SOURCE,
+            SEED_SENDER_ACCOUNT_NUMBER,
+            SEED_BALANCE,
+            "DEMO_RESET_SEED",
+            now);
+    demoSaveLedgerEntryPort.saveAll(openingBalancePair.entries());
 
     LedgerEntryPair transferPair =
         LedgerEntry.transferPair(

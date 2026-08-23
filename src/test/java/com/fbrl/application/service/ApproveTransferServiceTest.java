@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.verify;
 
 import com.fbrl.application.port.in.ApproveTransferUseCase.ApprovalDecisionResult;
@@ -23,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataAccessResourceFailureException;
 
 @ExtendWith(MockitoExtension.class)
 @DisplayName("ApproveTransferService 단위 테스트")
@@ -85,5 +87,28 @@ class ApproveTransferServiceTest {
         .isInstanceOf(SelfApprovalNotAllowedException.class);
 
     verify(transferMoneyUseCase, org.mockito.Mockito.never()).transfer(any());
+  }
+
+  @Test
+  @DisplayName("이체 실행 중 도메인 예외가 아닌 인프라 예외가 발생하면 executionFailureReason에 원본 메시지 대신 고정 문구를 저장한다.")
+  void approve_infraExceptionDuringTransfer_storesGenericExecutionFailureReason() {
+    sut =
+        new ApproveTransferService(
+            loadApprovalRequestPort, saveApprovalRequestPort, transferMoneyUseCase);
+
+    TransferApprovalRequest request =
+        TransferApprovalRequest.request("maker-1", "111-111", "222-222", Money.wons(20_000_000));
+    given(loadApprovalRequestPort.loadByRequestId(request.getRequestId()))
+        .willReturn(Optional.of(request));
+    given(saveApprovalRequestPort.save(any())).willAnswer(invocation -> invocation.getArgument(0));
+    willThrow(new DataAccessResourceFailureException("Connection refused by database"))
+        .given(transferMoneyUseCase)
+        .transfer(any());
+
+    assertThatThrownBy(
+            () -> sut.approve(new ApproveTransferCommand(request.getRequestId(), "checker-1")))
+        .isInstanceOf(DataAccessResourceFailureException.class);
+
+    assertThat(request.getExecutionFailureReason()).isEqualTo("내부 오류로 이체가 실행되지 않았습니다.");
   }
 }

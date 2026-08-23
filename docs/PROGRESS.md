@@ -877,6 +877,29 @@ Azure Cache for Redis는 비밀번호 인증과 TLS가 기본 강제되는데 `R
 
 동시성 테스트로 리셋 트랜잭션 진행 중 반복 조회해도 리셋 전/후 개수만 관측되고 중간값이 노출되지 않음을 실측(Postgres READ COMMITTED + 단일 트랜잭션이면 당연히 보장되는 성질이지만 직접 관측). 변조 판정 테스트는 outbox_event 3건 중 앞 2건은 `entryHash == recomputeEntryHash()`, 마지막 1건만 불일치함을 확인. 배치 메타데이터 테스트는 EOD 트리거를 당일 2회 호출해 409를 재현한 뒤 `reset()`을 호출하고 3번째 호출이 다시 200으로 성공함을 확인해 "데모 Job 한정 삭제"가 실제로 동작함을 증명.
 
+### 과제 39: 감사로그 해시체인 필드 노출 + 승인 실행 실패 사유 방어 (완료)
+
+브랜치: `feat/expose-audit-hashes-and-execution-failure-reason` → `develop` (PR #89)
+
+프론트엔드 팀 요청으로 두 응답 DTO에 도메인 모델엔 있으나 누락됐던 필드를 반영.
+
+1. `OutboxEventResponse`에 `previousHash`/`entryHash`/`traceId`/`spanId` 추가 — `/api/v1/audit/events` 목록도 `/verify`와 동일하게 해시체인 검증용 값을 노출하도록 확장. 착수 전 검토에서 과제 29의 "최소 필드 원칙"(entryHash/previousHash를 목록 API에서 의도적으로 제외) 결정과 충돌함을 확인했으나, 이번 요청이 명시적으로 승인한 범위라 그대로 반영(사용자 재확인 후 진행).
+2. `TransferApprovalDetailResponse`에 `executionFailureReason` 추가. 반영 전 `TransferMoneyService.transfer()`가 호출하는 포트 5종을 전수 확인한 결과, `AccountRepositoryPort`/`SaveLedgerEntryPort`는 인프라 예외를 도메인 예외로 번역하지만 `SaveOutboxEventPort`(`OutboxPersistenceAdapter`)는 과제 4 결정(트랜잭션 롤백 보장을 위한 의도적 미번역)에 따라 raw 예외를 그대로 전파함을 확인 — 이 raw 메시지가 `ApproveTransferService.approve()`의 catch 블록을 통해 `executionFailureReason`에 그대로 저장될 위험이 있음을 구현 전에 보고. `OutboxPersistenceAdapter`의 기존 설계(예외 미번역)는 그대로 두고, catch 지점에서 `com.fbrl.domain.exception` 패키지 소속 예외만 원본 메시지를 저장하고 그 외(인프라 예외)는 고정 문구로 대체하는 방어(`ApproveTransferService.safeExecutionFailureReason()`)를 신설.
+
+검증: `AuditControllerTest`(목록에 해시 필드 노출 확인, 기존 "entryHash 미노출" 단정 제거), `TransferApprovalControllerTest`(승인 성공 시 executionStatus 확인 추가), `ApproveTransferServiceTest`(인프라 예외 시 고정 문구 저장 확인 신규 케이스), 기존 `ApproveTransferTriggersFraudCheckIntegrationTest`(도메인 예외 경로는 원본 메시지 그대로 유지됨을 재확인)까지 전체 239건 통과.
+
+### 과제 40: 데모 데이터 리셋 대차평형 버그 수정 (완료)
+
+브랜치: `fix/demo-reset-trial-balance` → `develop`
+
+프론트엔드 팀이 `DemoDataResetService.reset()`이 `DEMO-AUDIT-DEMO` 계좌 초기 잔액(100만원)을 상대편 DEBIT 없는 단일 `LedgerEntry.of(..., CREDIT, ...)`로 저장하고 있음을 발견 — 원장 전체 차변/대변 합이 리셋마다 100만원씩 어긋나 `demoTrialBalanceVerificationStep`(`demoEodSettlementJob`)이 항상 실패하는 구조였음.
+
+`OpeningBalanceMigrationService.seedOpeningBalances()`가 쓰는 것과 동일한 패턴 — `SystemAccounts.OPENING_BALANCE_SOURCE`(실제 계좌 row 없는 sentinel)를 상대 계좌로 삼는 `LedgerEntry.transferPair(...)` — 로 교체해 DEBIT/CREDIT 페어로 시딩하도록 수정.
+
+수정 전 코드로 실제 버그를 재현: 리셋 후 원장 전체 총 차변 100,000.00 KRW vs 총 대변 1,100,000.00 KRW(정확히 100만원 어긋남), `demoJobOperator.start(demoEodSettlementJob, ...)`가 `TrialBalanceViolationException`으로 `BatchStatus.FAILED` 종료됨을 확인 — "리셋 → EOD 트리거" 조합이 이 버그가 존재하는 한 한 번도 COMPLETED로 끝난 적이 없었음을 실증. 수정 재적용 후 동일 테스트 통과.
+
+신규 `DemoDataResetTrialBalanceIntegrationTest` — 리셋 후 원장 DEBIT/CREDIT 합계를 `ledger_entries` 테이블에 직접 SQL로 대조(`demoTrialBalanceVerificationStep`과 동일한 로직 재현), 리셋→데모 EOD Job 온디맨드 트리거→`BatchStatus.COMPLETED` 종단 테스트 추가. 기존 `DemoDataResetIntegrationTest`(계좌 개수/outbox 개수 등 raw 쿼리 검증) 6건도 회귀 없이 통과. 전체 241건 통과.
+
 ## 🚧 다음 작업
 
 - (보류) 승인은 됐으나 집행(실제 이체) 실패한 건의 재시도 정책 — 과제 23에서 `TransferApprovalRequest.executionStatus`(NOT_APPLICABLE/EXECUTED/FAILED)로 "승인 행위"와 "집행 결과"를 분리했지만, `executionStatus=FAILED`로 남은 건을 재시도시킬 API/운영 절차는 이번 스코프에서 의도적으로 제외(YAGNI). 재시도 API 필요 시: 같은 요청을 다시 집행할지, 아니면 신규 승인 요청을 처음부터 다시 만들게 할지부터 결정 필요.
@@ -948,7 +971,9 @@ Azure Cache for Redis는 비밀번호 인증과 TLS가 기본 강제되는데 `R
 - ShedLock은 "이 락이 지금 보유 중인가"를 조회하는 공개 API를 제공하지 않음 — 필요하면 `shedlock-provider-redis-spring`의 내부 키 포맷(`InternalRedisLockProvider.buildKey()` = `keyPrefix(기본 "job-lock") + ":" + environment + ":" + lockName`)을 직접 재구현해 `StringRedisTemplate.hasKey()`로 조회해야 함(과제 38, `ShedLockRedisStatusAdapter`) — 라이브러리 내부 구현 세부사항 의존이라 ShedLock 버전을 올릴 때는 이 키 포맷이 안 바뀌었는지 재확인 필요
 - Spring Batch의 `BATCH_*` 테이블은 JPA `@Entity`가 아닌 순수 JDBC 테이블이라, 특정 Job명 한정으로 이력을 삭제하는 등 Repository로 표현 불가능한 작업은 네이티브 SQL이 필요함 — `@PersistenceContext(unitName = "...")`로 얻은 `EntityManager`의 `createNativeQuery()`는 같은 트랜잭션(같은 `PlatformTransactionManager`)에 자연스럽게 참여하므로, 별도 `DataSource`로 `JdbcTemplate`을 새로 만드는 것(트랜잭션이 분리되어 원자성이 깨짐)보다 안전함(과제 38, `DemoBatchJobHistoryResetAdapter`)
 - `@SpringBootTest` + `@MockitoBean`으로 특정 Port를 오버라이드하면, 그 오버라이드 조합이 기존 어떤 테스트 클래스와도 다르면 Spring이 완전히 새로운 ApplicationContext를 띄운다 — 컨텍스트마다 각자 HikariCP 커넥션 풀(운영+데모 두 DataSource 몫)을 새로 열기 때문에, 이미 서로 다른 오버라이드 조합의 컨텍스트가 여러 개 쌓인 상태에서 하나를 더 추가하면 전체 테스트 스위트를 한 번에 돌릴 때만(단독 실행은 항상 통과) 무관한 다른 테스트가 커넥션 풀 고갈로 간헐적으로 실패할 수 있음 — 가능하면 실제 어댑터를 그대로 쓰거나 이미 존재하는 오버라이드 조합을 재사용해 컨텍스트 캐시를 늘리지 말 것(과제 35)
+- 트랜잭션 롤백 보장을 위해 예외를 의도적으로 번역하지 않고 그대로 전파하는 어댑터(`OutboxPersistenceAdapter`, 과제 4)가 있으면, 그 raw 예외가 호출 스택을 타고 올라가 사용자 응답 필드(예: `executionFailureReason`)에 그대로 저장될 수 있다는 점을 별개로 점검할 것 — "예외 번역 안 함"과 "그 예외 메시지를 외부에 노출 안 함"은 서로 다른 문제라 한쪽을 지켰다고 다른 쪽이 자동으로 지켜지지 않음(과제 39, `ApproveTransferService.safeExecutionFailureReason()`으로 도메인 예외 패키지 여부를 기준으로 방어)
+- 복식부기 원장 초기 잔액 시딩은 반드시 `LedgerEntry.transferPair(...)`(상대계정 있는 페어)로만 할 것 — `LedgerEntry.of(...)` 단독 호출로 단일 다리만 넣으면 시스템 전체 대차평형이 깨지고, 이 버그는 EOD trial balance 검증 스텝을 실제로 실행해봐야만 드러남(단위 테스트만으로는 안 잡힘). 운영 코드(`OpeningBalanceMigrationService`, 과제 16)는 처음부터 이 규칙을 지켰지만 데모 시딩 코드(`DemoDataResetService`, 과제 38)에서 동일한 실수가 반복됨(과제 40) — 신규 원장 시딩 코드를 작성/리뷰할 때마다 `LedgerEntry.of()` 단독 호출이 없는지 확인할 것
 
 ---
 
-마지막 업데이트: 2026-08-17
+마지막 업데이트: 2026-08-23
