@@ -1,6 +1,7 @@
 package com.fbrl.global.common.aop;
 
 import com.fbrl.application.port.out.IdempotencyRepositoryPort;
+import com.fbrl.domain.exception.DuplicateIdempotencyKeyException;
 import com.fbrl.global.common.annotation.CheckIdempotency;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Duration;
@@ -45,7 +46,7 @@ public class IdempotencyAspect {
     boolean isFirstRequest = idempotencyRepositoryPort.setIfAbsent(redisKey, "PROCESSING", ttl);
 
     if (!isFirstRequest) {
-      throw new IllegalStateException(
+      throw new DuplicateIdempotencyKeyException(
           "이미 처리되었거나 처리 중인 요청입니다. (X-Idempotency-Key: " + idempotencyKey + ")");
     }
     try {
