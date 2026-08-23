@@ -223,6 +223,13 @@ class TransferApprovalControllerTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.status").value("APPROVED"));
 
+    mockMvc
+        .perform(
+            get("/api/v1/transfer-approvals/" + request.getRequestId())
+                .header(HttpHeaders.AUTHORIZATION, bearer(checkerToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.executionStatus").value("EXECUTED"));
+
     TransferApprovalRequest persisted =
         approvalPersistenceAdapter.loadByRequestId(request.getRequestId()).orElseThrow();
     assertThat(persisted.getCheckerId()).isEqualTo(CHECKER_USERNAME);
