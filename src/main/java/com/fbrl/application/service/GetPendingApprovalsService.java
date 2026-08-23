@@ -5,8 +5,10 @@ import com.fbrl.application.port.out.LoadApprovalRequestPort;
 import com.fbrl.domain.model.ApprovalStatus;
 import com.fbrl.domain.model.TransferApprovalRequest;
 import java.util.List;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
+@Primary
 @Service
 public class GetPendingApprovalsService implements GetPendingApprovalsUseCase {
 

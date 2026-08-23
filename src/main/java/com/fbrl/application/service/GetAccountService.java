@@ -5,9 +5,11 @@ import com.fbrl.application.port.out.AccountRepositoryPort;
 import com.fbrl.domain.exception.AccountNotFoundException;
 import com.fbrl.domain.model.Account;
 import com.fbrl.domain.model.Money;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Primary
 @Service
 public class GetAccountService implements GetAccountUseCase {
   private final AccountRepositoryPort accountRepositoryPort;
