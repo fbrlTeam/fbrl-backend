@@ -45,6 +45,7 @@ Spring Boot의 환경변수 relaxed binding은 `.`과 `-` 둘 다 단어 경계�
 | `DEMO_EOD_BATCH_CRON` | `demo.eod.batch.cron` | `"0 10 2 * * *"` | 필수 아님 | N/A | 데모 EOD 정산 배치 트리거 시각. 운영(`02:00`)과 겹치지 않도록 기본값을 `02:10`으로 분리해뒀음 — 운영과 겹치게 바꿔도 기동 실패는 아니지만(별도 JobRepository/DataSource라 서로 락 경합도 없음) 로그 상에서 두 Job이 동시에 도는 게 헷갈릴 수 있어 권장하지 않음 |
 | `RECONCILIATION_BATCH_CRON` | `reconciliation.batch.cron` | `"0 0 3 * * *"` | 필수 아님 | N/A | 정산 대사 배치 트리거 시각. EOD 이후 시각으로 유지할 것 |
 | `DEMO_RECONCILIATION_BATCH_CRON` | `demo.reconciliation.batch.cron` | `"0 20 3 * * *"` | 필수 아님 | N/A | 데모 정산 대사 배치 트리거 시각. 운영(`03:00`)과도, 데모 EOD(`02:10`)와도 겹치지 않도록 `03:20`으로 분리해뒀음 — 별도 JobRepository/DataSource라 겹쳐도 기동 실패나 락 경합은 없지만 로그가 헷갈릴 수 있어 권장하지 않음 |
+| `DEMO_RESET_CRON` | `demo.reset.cron` | `"0 */30 * * * *"`(30분마다) | 필수 아님 | N/A | 데모 데이터 리셋 주기. 값이 틀려도 앱 동작엔 영향 없음, 리셋 주기만 달라짐 — 방문자 트래픽 패턴에 따라 조정 가능 |
 | `K8S_LEADER_ELECTION_ENABLED` | `k8s.leader-election.enabled` | `false` | 필수 아님 | N/A | **Azure로 갈 경우 기본값 `false` 유지 권장** — K8s Lease API 기반 리더 선출은 실제 K8s 클러스터 환경(kind/AKS 등)이 전제. Azure 배포 대상이 확정되지 않은 현재는 건드리지 말 것 |
 | `K8S_LEADER_ELECTION_NAMESPACE` | `k8s.leader-election.namespace` | `default` | 필수 아님 | N/A(`enabled=false`면 미사용) | `ENABLED=true`로 켤 때만 의미 있음 |
 | `K8S_LEADER_ELECTION_LEASE_NAME` | `k8s.leader-election.lease-name` | `eod-settlement-leader` | 필수 아님 | N/A(`enabled=false`면 미사용) | 상동 |
