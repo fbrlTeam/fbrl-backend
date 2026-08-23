@@ -4,8 +4,10 @@ import com.fbrl.application.port.in.GetEodSnapshotsByDateUseCase;
 import com.fbrl.application.port.out.LoadEodSnapshotHistoryPort;
 import com.fbrl.application.port.out.PagedResult;
 import com.fbrl.domain.model.EodSnapshot;
+import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 
+@Primary
 @Service
 public class GetEodSnapshotsByDateService implements GetEodSnapshotsByDateUseCase {
 

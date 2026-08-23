@@ -4,22 +4,23 @@ import com.fbrl.application.port.in.SearchTransferApprovalsUseCase;
 import com.fbrl.application.port.out.LoadApprovalRequestPort;
 import com.fbrl.application.port.out.PagedResult;
 import com.fbrl.domain.model.TransferApprovalRequest;
-import org.springframework.context.annotation.Primary;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
-@Primary
 @Service
-public class SearchTransferApprovalsService implements SearchTransferApprovalsUseCase {
+@Qualifier("demo")
+public class DemoSearchTransferApprovalsService implements SearchTransferApprovalsUseCase {
 
-  private final LoadApprovalRequestPort loadApprovalRequestPort;
+  private final LoadApprovalRequestPort demoLoadApprovalRequestPort;
 
-  public SearchTransferApprovalsService(LoadApprovalRequestPort loadApprovalRequestPort) {
-    this.loadApprovalRequestPort = loadApprovalRequestPort;
+  public DemoSearchTransferApprovalsService(
+      @Qualifier("demo") LoadApprovalRequestPort demoLoadApprovalRequestPort) {
+    this.demoLoadApprovalRequestPort = demoLoadApprovalRequestPort;
   }
 
   @Override
   public PagedResult<TransferApprovalRequest> search(SearchTransferApprovalsQuery query) {
-    return loadApprovalRequestPort.search(
+    return demoLoadApprovalRequestPort.search(
         query.status(), query.from(), query.to(), query.page(), query.size());
   }
 }

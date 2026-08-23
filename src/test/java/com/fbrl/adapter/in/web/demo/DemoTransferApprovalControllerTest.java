@@ -22,6 +22,7 @@ import com.fbrl.application.port.out.SaveAdminUserPort;
 import com.fbrl.application.port.out.SaveLedgerEntryPort;
 import com.fbrl.application.service.DemoAccountBalanceCalculator;
 import com.fbrl.domain.model.Account;
+import com.fbrl.domain.model.AdminRole;
 import com.fbrl.domain.model.AdminUser;
 import com.fbrl.domain.model.ExecutionStatus;
 import com.fbrl.domain.model.LedgerDirection;
@@ -52,6 +53,7 @@ class DemoTransferApprovalControllerTest {
 
   private static final String MAKER_USERNAME = "demo-approval-test-maker";
   private static final String CHECKER_USERNAME = "demo-approval-test-checker";
+  private static final String DEMO_USERNAME = "demo-approval-test-demo-account";
   private static final String PASSWORD = "correct-password-123";
   private static final String SENDER = "DEMO-APPROVAL-111";
   private static final String RECEIVER = "DEMO-APPROVAL-222";
@@ -81,6 +83,7 @@ class DemoTransferApprovalControllerTest {
 
   private String makerToken;
   private String checkerToken;
+  private String demoToken;
 
   @BeforeEach
   void setUp() throws Exception {
@@ -96,8 +99,11 @@ class DemoTransferApprovalControllerTest {
     adminUserPersistenceAdapter.deleteAllInBatch();
     saveAdminUserPort.save(AdminUser.create(MAKER_USERNAME, passwordEncoder.encode(PASSWORD)));
     saveAdminUserPort.save(AdminUser.create(CHECKER_USERNAME, passwordEncoder.encode(PASSWORD)));
+    saveAdminUserPort.save(
+        AdminUser.create(DEMO_USERNAME, passwordEncoder.encode(PASSWORD), AdminRole.DEMO));
     makerToken = login(MAKER_USERNAME);
     checkerToken = login(CHECKER_USERNAME);
+    demoToken = login(DEMO_USERNAME);
 
     demoAccountPersistenceAdapter.save(Account.create(SENDER));
     demoAccountPersistenceAdapter.save(Account.create(RECEIVER));
@@ -299,5 +305,124 @@ class DemoTransferApprovalControllerTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.requestId").value(requestId))
         .andExpect(jsonPath("$.status").value("PENDING"));
+  }
+
+  @Test
+  @DisplayName("DEMO 계정으로 기간 필터로 데모 승인 요청 목록을 조회하면 200과 함께 방금 기안한 건을 반환한다.")
+  void demoAccount_canSearchRequestsWithinPeriod() throws Exception {
+    String requestId = requestApproval(makerToken, BigDecimal.valueOf(20_000_000));
+    Instant from = Instant.now().minusSeconds(60);
+    Instant to = Instant.now().plusSeconds(60);
+
+    mockMvc
+        .perform(
+            get(TRIGGER_URL)
+                .header(HttpHeaders.AUTHORIZATION, bearer(demoToken))
+                .param("from", from.toString())
+                .param("to", to.toString()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.totalElements").value(1))
+        .andExpect(jsonPath("$.content[0].requestId").value(requestId));
+  }
+
+  @Test
+  @DisplayName("DEMO 계정으로 대기 중인 데모 승인 목록을 조회하면 200을 반환한다.")
+  void demoAccount_canListPendingApprovals() throws Exception {
+    requestApproval(makerToken, BigDecimal.valueOf(20_000_000));
+
+    mockMvc
+        .perform(get(TRIGGER_URL + "/pending").header(HttpHeaders.AUTHORIZATION, bearer(demoToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.length()").value(1));
+  }
+
+  @Test
+  @DisplayName("ADMIN 계정도 데모 승인 목록/대기 조회에 여전히 접근 가능하다(회귀 없음).")
+  void adminAccount_canStillListAndSeePending() throws Exception {
+    requestApproval(makerToken, BigDecimal.valueOf(20_000_000));
+    Instant from = Instant.now().minusSeconds(60);
+    Instant to = Instant.now().plusSeconds(60);
+
+    mockMvc
+        .perform(
+            get(TRIGGER_URL)
+                .header(HttpHeaders.AUTHORIZATION, bearer(checkerToken))
+                .param("from", from.toString())
+                .param("to", to.toString()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.totalElements").value(1));
+
+    mockMvc
+        .perform(
+            get(TRIGGER_URL + "/pending").header(HttpHeaders.AUTHORIZATION, bearer(checkerToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.length()").value(1));
+  }
+
+  @Test
+  @DisplayName("PENDING 상태인 데모 승인 요청만 대기 목록에 나타난다.")
+  void getPendingApprovals_returnsOnlyPendingRequests() throws Exception {
+    requestApproval(makerToken, BigDecimal.valueOf(20_000_000));
+
+    mockMvc
+        .perform(
+            get(TRIGGER_URL + "/pending").header(HttpHeaders.AUTHORIZATION, bearer(makerToken)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.length()").value(1))
+        .andExpect(jsonPath("$[0].status").value("PENDING"));
+  }
+
+  @Test
+  @DisplayName("토큰 없이 데모 승인 목록/대기를 조회하면 401을 반환한다.")
+  void searchAndPending_withoutToken_return401() throws Exception {
+    mockMvc
+        .perform(
+            get(TRIGGER_URL)
+                .param("from", Instant.EPOCH.toString())
+                .param("to", Instant.now().toString()))
+        .andExpect(status().isUnauthorized())
+        .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+
+    mockMvc
+        .perform(get(TRIGGER_URL + "/pending"))
+        .andExpect(status().isUnauthorized())
+        .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+  }
+
+  @Test
+  @DisplayName("전체 건수보다 큰 페이지를 요청하면 빈 content를 반환하되 totalElements는 정확하다.")
+  void search_pageBeyondTotal_returnsEmptyContent() throws Exception {
+    requestApproval(makerToken, BigDecimal.valueOf(20_000_000));
+    Instant from = Instant.now().minusSeconds(60);
+    Instant to = Instant.now().plusSeconds(60);
+
+    mockMvc
+        .perform(
+            get(TRIGGER_URL)
+                .header(HttpHeaders.AUTHORIZATION, bearer(checkerToken))
+                .param("from", from.toString())
+                .param("to", to.toString())
+                .param("page", "5")
+                .param("size", "20"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.content").isEmpty())
+        .andExpect(jsonPath("$.totalElements").value(1));
+  }
+
+  @Test
+  @DisplayName("데모 승인 목록은 운영 승인 목록과 섞이지 않는다.")
+  void demoApprovalList_doesNotMixWithProductionApprovals() throws Exception {
+    requestApproval(makerToken, BigDecimal.valueOf(20_000_000));
+    Instant from = Instant.now().minusSeconds(60);
+    Instant to = Instant.now().plusSeconds(60);
+
+    mockMvc
+        .perform(
+            get("/api/v1/transfer-approvals")
+                .header(HttpHeaders.AUTHORIZATION, bearer(checkerToken))
+                .param("from", from.toString())
+                .param("to", to.toString()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.totalElements").value(0));
   }
 }
