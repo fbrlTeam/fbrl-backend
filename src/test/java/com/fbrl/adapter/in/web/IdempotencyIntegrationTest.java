@@ -2,6 +2,7 @@ package com.fbrl.adapter.in.web;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fbrl.adapter.in.web.dto.TransferMoneyRequest;
@@ -130,11 +131,11 @@ class IdempotencyIntegrationTest {
                 .header("X-Idempotency-Key", idempotencyKey)
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("DUPLICATE_IDEMPOTENCY_KEY"))
         .andExpect(
-            result ->
-                assertThat(result.getResolvedException())
-                    .isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining("이미 처리되었거나 처리 중인 요청입니다"));
+            jsonPath("$.message")
+                .value("이미 처리되었거나 처리 중인 요청입니다. (X-Idempotency-Key: " + idempotencyKey + ")"));
 
     Account sender = accountPersistenceAdapter.findByAccountNumber(SENDER_ACCOUNT).orElseThrow();
 

@@ -54,6 +54,13 @@ public class GlobalExceptionHandler {
         .body(ErrorResponse.of("DUPLICATE_ACCOUNT_NUMBER", e.getMessage()));
   }
 
+  @ExceptionHandler(DuplicateIdempotencyKeyException.class)
+  public ResponseEntity<ErrorResponse> handleDuplicateIdempotencyKeyException(
+      DuplicateIdempotencyKeyException e) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(ErrorResponse.of("DUPLICATE_IDEMPOTENCY_KEY", e.getMessage()));
+  }
+
   @ExceptionHandler(AccountPersistenceException.class)
   public ResponseEntity<ErrorResponse> handleAccountPersistenceException(
       AccountPersistenceException e) {
