@@ -59,6 +59,10 @@ shedlock:
   environment: ${SHEDLOCK_ENVIRONMENT:fbrl-backend}
 
 management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
   tracing:
     sampling:
       probability: 1.0
