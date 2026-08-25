@@ -5,15 +5,19 @@ import com.fbrl.adapter.in.web.dto.ErrorResponse;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.userdetails.User;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
@@ -28,17 +32,48 @@ public class SecurityConfig {
   private final JwtAuthenticationFilter jwtAuthenticationFilter;
   private final CorsConfigurationSource corsConfigurationSource;
   private final ObjectMapper objectMapper;
+  private final PrometheusMetricsCredentialsProperties prometheusMetricsCredentialsProperties;
 
   public SecurityConfig(
       JwtAuthenticationFilter jwtAuthenticationFilter,
       CorsConfigurationSource corsConfigurationSource,
-      ObjectMapper objectMapper) {
+      ObjectMapper objectMapper,
+      PrometheusMetricsCredentialsProperties prometheusMetricsCredentialsProperties) {
     this.jwtAuthenticationFilter = jwtAuthenticationFilter;
     this.corsConfigurationSource = corsConfigurationSource;
     this.objectMapper = objectMapper;
+    this.prometheusMetricsCredentialsProperties = prometheusMetricsCredentialsProperties;
   }
 
   @Bean
+  @Order(1)
+  public SecurityFilterChain prometheusSecurityFilterChain(HttpSecurity http) throws Exception {
+    http.securityMatcher("/actuator/prometheus")
+        .csrf(csrf -> csrf.disable())
+        .sessionManagement(
+            session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+        .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
+        .httpBasic(Customizer.withDefaults())
+        .userDetailsService(prometheusUserDetailsService());
+    return http.build();
+  }
+
+  private InMemoryUserDetailsManager prometheusUserDetailsService() {
+    InMemoryUserDetailsManager userDetailsManager = new InMemoryUserDetailsManager();
+    String username = prometheusMetricsCredentialsProperties.username();
+    String password = prometheusMetricsCredentialsProperties.password();
+    if (username != null && !username.isBlank() && password != null && !password.isBlank()) {
+      userDetailsManager.createUser(
+          User.withUsername(username)
+              .password(passwordEncoder().encode(password))
+              .roles("PROMETHEUS")
+              .build());
+    }
+    return userDetailsManager;
+  }
+
+  @Bean
+  @Order(2)
   public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
     http.csrf(csrf -> csrf.disable())
         .cors(cors -> cors.configurationSource(corsConfigurationSource))
